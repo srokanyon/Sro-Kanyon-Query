@@ -1,0 +1,280 @@
+USE [SRO_VT_SHARD]
+GO
+/****** Object:  StoredProcedure [dbo].[_SMC_ADD_ITEM]    Script Date: 07.03.2015 11:53:55 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER OFF
+GO
+
+
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+-- fixed by Nightblue  _SMC_ADD_ITEM ¼öÁ¤ 
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+
+ -----------------------------------------------------------------------  
+ALTER       procedure [dbo].[_SMC_ADD_ITEM]  
+----------------------------------------------------- params to find target item  
+ @TargetStorage int,  /* 0 = inventory, 1 = chest , 2 = guild chest, 3 = Avatar Inventory */  
+ @OwnerName varchar(128),  
+ ----------------------------------------------------- params to modify the item  
+ @RefItemID  int,  
+ @OptLvl   tinyint,  
+ @Variance  bigint,  
+ @Data   int,  
+ @szCreater  varchar(32),  
+ @MagParamNum int,  
+ @MagParam1 bigint,  
+ @MagParam2 bigint,  
+ @MagParam3 bigint,  
+ @MagParam4 bigint,  
+ @MagParam5 bigint,  
+ @MagParam6 bigint,  
+ @MagParam7 bigint,  
+ @MagParam8 bigint,  
+ @MagParam9 bigint,  
+ @MagParam10 bigint,  
+ @MagParam11 bigint,  
+ @MagParam12 bigint  
+as  
+ ----------------------------------------------------  
+ -- step 1. check validity of parameters  
+ ----------------------------------------------------  
+ if (@TargetStorage <> 0 and @TargetStorage <> 1 and @TargetStorage <> 2 and @TargetStorage <> 3)  
+ begin  
+  select -1, cast(0 as bigint), cast(0 as bigint) -- invalid target storage  
+  return  
+ end  
+ declare @ownerid int  
+ declare @ItemID bigint  
+ set @ownerid = 0  
+ set @ItemID = 0  
+ declare @empty_slot int  
+ set @empty_slot = -1  
+ if (@TargetStorage = 0)  
+ begin  
+  select @ownerid = charid from _char where charname16 = @OwnerName  
+  if (@@rowcount = 0 or @ownerid = 0 or @ownerid is null)  
+  begin  
+   select -2, cast(0 as bigint), cast(0 as bigint)-- can't find owner  
+   return  
+  end  
+  
+  select top 1 @empty_slot = slot from _inventory   
+  where charid = @ownerid and slot >= 13   
+   and itemid = 0   
+   and slot < (select top 1 InventorySize from _Char where CharID = @ownerid)  
+  order by slot asc  
+  
+  if (@@rowcount = 0)  
+  begin  
+   select -3, cast(0 as bigint), cast(0 as bigint) -- inventory full  
+   return  
+  end  
+ end  
+ else if (@TargetStorage = 1)  
+ begin  
+  select @ownerid = JID from _AccountJID where AccountID = @ownername  
+  if (@@rowcount = 0 or @ownerid = 0 or @ownerid is null)  
+  begin  
+   select -2, cast(0 as bigint), cast(0 as bigint) -- can't find owner  
+   return  
+  end  
+  select top 1 @empty_slot = slot from _chest where userjid = @ownerid and (itemid = 0 or ItemID is null) order by slot asc  
+  if (@@rowcount = 0)  
+  begin  
+   select -3, cast(0 as bigint), cast(0 as bigint) -- chest full  
+   return  
+  end  
+ end  
+ else if (@TargetStorage = 2)  
+ begin  
+  select @ownerid = [ID] from _guild where [name] = @ownername  
+  if (@@rowcount = 0 or @ownerid = 0 or @ownerid is null)  
+  begin  
+   select -2, cast(0 as bigint), cast(0 as bigint) -- can't find owner  
+   return  
+  end   
+  select top 1 @empty_slot = slot from _guildchest where guildid = @ownerid and (itemid = 0 or ItemID is null) order by slot asc  
+  if (@@rowcount = 0)  
+  begin  
+   select -3, cast(0 as bigint), cast(0 as bigint) -- chest full  
+   return  
+  end   
+    
+  -- ±æµå ·¹º§¿¡ µû¸¥ ±æµå ½½·Ô¼ö Á¦ÇÑÀ» È®ÀÎÇÏÀÚ.  
+  declare @lvl tinyint  
+  declare @max_slot tinyint  
+  select @lvl = Lvl from _guild where [id] = @ownerid  
+  set @max_slot = 30 * (@lvl - 1) - 1  
+  
+  if @empty_slot > @max_slot   
+  begin  
+   select -3, cast(0 as bigint), cast(0 as bigint) -- chest full  
+   return  
+  end      
+ end  
+ else  
+ begin  
+  select @ownerid = charid from _char where charname16 = @OwnerName  
+  if (@@rowcount = 0 or @ownerid = 0 or @ownerid is null)  
+  begin  
+   select -2, cast(0 as bigint), cast(0 as bigint)-- can't find owner  
+   return  
+  end  
+  
+  select top 1 @empty_slot = slot from _InventoryForAvatar  
+  where charid = @ownerid  
+   and itemid = 0   
+   and slot < 4     -- ÇÁ·Î½ÃÁ® ÇÏµåÄÚµù(¾Æ¹ÙÅ¸ ½½·ÔÀº 0, 1, 2, 3ÀÌ´Ù.)  
+  order by slot asc  
+  
+  if (@@rowcount = 0)  
+  begin  
+   select -3, cast(0 as bigint), cast(0 as bigint) -- inventory full  
+   return  
+  end  
+ end  
+   
+  
+ if (@empty_slot < 0 or @empty_slot is null)  
+ begin   
+  select -4, cast(0 as bigint), cast(0 as bigint)  -- unknown error ???  
+  return  
+ end  
+   
+ declare @tid1 int  
+ declare @tid2 int  
+ declare @tid3 int  
+  declare @tid4 int  
+   
+ select @tid1 = TypeID1, @tid2 = TypeID2, @tid3 = TypeID3, @tid4 = TypeID4 from _RefObjCommon where ID = @RefItemID  
+ if (@tid1 <> 3)  
+ begin  
+  select -5, cast(0 as bigint), cast(0 as bigint) -- about to assign non-item object  
+  return  
+ end  
+ if (@tid2 <> 1)  -- is not equipment  
+ begin  
+  -- can't assign magic param or optlevel to non-equip item  
+  if (@MagParamNum > 0 or @OptLvl > 0)  
+  begin  
+   select -6, cast(0 as bigint), cast(0 as bigint)  
+   return  
+  end  
+ end  
+   
+ ----------------------------------------------------  
+ -- step 2. correct some non-critical parameters  
+ ----------------------------------------------------  
+ if (@tid2 = 3 and @Data = 0) -- can't assign overlap count 0 to expendable item  
+ begin  
+  set @Data = 1  
+ end  
+  
+ if (LEN(@szCreater) = 0)  
+  set @szCreater = NULL  
+  
+ ----------------------------------------------------  
+ -- step add. equip and pet @data setting  
+ ----------------------------------------------------  
+ declare @IS_EQUIP int  
+ declare @IS_PET int  
+  
+ set @IS_EQUIP = 0  
+ set @IS_PET = 0  
+  
+ if (@tid1 = 3 and @tid2 = 1)  
+  set @IS_EQUIP = 1  
+ else if (@tid1 = 3 and @tid2 = 2 and @tid3 = 1 and (@tid4 = 1 or @tid4 = 2))  
+  set @IS_PET = 1  
+  
+ if (@IS_EQUIP = 1)  
+ begin  
+  
+	-- Àß ¸øµÈ ID·Î select ÇÏ°í ÀÖÀ½. ¼öÁ¤ (by binu 2008-10-17)
+	--	select @Data = Dur_L from _RefObjItem where ID =  @RefItemID
+    select @Data = Dur_L from _RefObjItem where ID = (select Link from _RefObjCommon where ID = @RefItemID )
+    
+   if (@OptLvl < 0)  
+    set @OptLvl = 0  
+   else if (@OptLvl > 255)  
+    set @OptLvl = 255  
+  
+ end  
+ else  
+ begin  
+  
+  if( @IS_PET = 1 )  
+   set @Data = 0  
+  else  
+  begin  
+   declare @MaxCount int  
+   select @MaxCount = MaxStack from _RefObjItem where ID = @RefItemID  
+   
+   if (@Data <= 0 or @Data > @MaxCount)    
+    set @Data = @MaxCount    
+  end  
+  
+  set @OptLvl = 0  
+ end  
+  
+  
+ ----------------------------------------------------------  
+ -- Step3. create item and set to associated storage  
+ ----------------------------------------------------------  
+ set xact_abort on  
+begin transaction  
+   
+ declare @NewItemID  bigint  
+ declare @Serial64 bigint  
+ set @NewItemID  = 0  
+ set @Serial64 = 0  
+ exec @NewItemID = _STRG_ALLOC_ITEM_NoTX @Serial64 OUTPUT  
+ if (@NewItemID = 0)  
+ begin  
+  rollback transaction  
+  select -7, cast(0 as bigint), cast(0 as bigint)  
+  return  
+ end  
+ if (@MagParamNum = 0)  
+ begin  
+  update _Items set RefItemID = @RefItemID, OptLevel = @OptLvl, Variance = @Variance, Data = @Data, MagParamNum = 0, Serial64 = @Serial64   
+  where ID64 = @NewItemID  
+ end  
+ else  
+ begin  
+  update _Items set RefItemID = @RefItemID, OptLevel = @OptLvl, Variance = @Variance, Data = @Data, MagParamNum = @MagParamNum,   
+    MagParam1 = @MagParam1, MagParam2 = @MagParam2, MagParam3 = @MagParam3, MagParam4 = @MagParam4,  
+    MagParam5 = @MagParam5, MagParam6 = @MagParam6, MagParam7 = @MagParam7, MagParam8 = @MagParam8,  
+    MagParam9 = @MagParam9, MagParam10= @MagParam10, MagParam11 = @MagParam11, MagParam12 = @MagParam12, Serial64 = @Serial64  
+  where ID64 = @NewItemID  
+ end  
+ if (@@error <> 0)  
+ begin  
+  rollback transaction  
+  select -8, cast(0 as bigint), cast(0 as bigint)  
+  return  
+ end  
+ if (@TargetStorage = 0)  
+  update _Inventory set ItemID = @NewItemID where CharID = @ownerid and Slot = @empty_slot  
+ else if (@TargetStorage = 1)  
+  update _chest set ItemID = @NewItemID where UserJID = @ownerid and slot = @empty_slot  
+ else if (@TargetStorage = 2)  
+  update _guildchest set ItemID = @NewItemID where guildid = @ownerid and slot = @empty_slot  
+ else  
+  update _InventoryForAvatar set ItemID = @NewItemID where CharID = @ownerid and Slot = @empty_slot  
+   
+ if (@@rowcount = 0 or @@error <> 0)  
+ begin  
+  rollback transaction  
+  select -9, cast(0 as bigint), cast(0 as bigint)  
+  return  
+ end  
+   
+ commit transaction  
+ select @empty_slot, @NewItemID, @Serial64  
+ return  
